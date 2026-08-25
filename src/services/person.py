@@ -1,12 +1,12 @@
 from functools import lru_cache
 from typing import Optional
 
-from elasticsearch import AsyncElasticsearch, NotFoundError
 from fastapi import Depends
 from pydantic import BaseModel, TypeAdapter
 
 from core.pagination import Pagination
-from db.elastic import get_elastic
+from db.elastic import get_search_engine
+from db.search_engine import SearchEngine
 from models.film import FilmShort
 from models.person import PersonFull
 from services.cache import CacheService, get_cache_service
@@ -23,11 +23,11 @@ class PersonService:
     def __init__(
         self,
         cache: CacheService,
-        elastic: AsyncElasticsearch,
+        search_engine: SearchEngine,
         film_service: FilmService,
     ):
         self.cache = cache
-        self.elastic = elastic
+        self.search_engine = search_engine
         self.film_service = film_service
 
     async def get_by_id(self, person_id: str) -> Optional[PersonFull]:
@@ -35,7 +35,7 @@ class PersonService:
         if cached := await self.cache.get_model(cache_key, PersonFull):
             return cached
 
-        person = await self._get_person_from_elastic(person_id)
+        person = await self._get_person(person_id)
         if not person:
             return None
         await self.cache.set_model(cache_key, person)
@@ -54,7 +54,7 @@ class PersonService:
         if (cached := await self.cache.get_typed(cache_key, PERSONS_LIST_ADAPTER)) is not None:
             return cached
 
-        persons = await self._search_persons_from_elastic(
+        persons = await self._search_persons(
             from_=pagination.offset,
             size=pagination.page_size,
             query=query,
@@ -77,26 +77,25 @@ class PersonService:
         await self.cache.set_model(cache_key, PersonFilmsCache(films=films))
         return films
 
-    async def _get_person_from_elastic(self, person_id: str) -> PersonFull | None:
-        try:
-            doc = await self.elastic.get(index='persons', id=person_id)
-        except NotFoundError:
+    async def _get_person(self, person_id: str) -> PersonFull | None:
+        source = await self.search_engine.get('persons', person_id)
+        if not source:
             return None
-        return PersonFull(**doc['_source'])
+        return PersonFull(**source)
 
-    async def _search_persons_from_elastic(
+    async def _search_persons(
         self,
         from_: int,
         size: int,
         query: str,
     ) -> list[PersonFull]:
-        docs = await self.elastic.search(
-            index='persons',
-            query={'match': {'full_name': query}},
+        sources = await self.search_engine.search(
+            'persons',
+            {'match': {'full_name': query}},
             from_=from_,
             size=size,
         )
-        return [PersonFull(**hit['_source']) for hit in docs['hits']['hits']]
+        return [PersonFull(**source) for source in sources]
 
     @staticmethod
     def _person_cache_key(person_id: str) -> str:
@@ -122,7 +121,7 @@ class PersonService:
 @lru_cache()
 def get_person_service(
         cache: CacheService = Depends(get_cache_service),
-        elastic: AsyncElasticsearch = Depends(get_elastic),
+        search_engine: SearchEngine = Depends(get_search_engine),
         film_service: FilmService = Depends(get_film_service),
 ) -> PersonService:
-    return PersonService(cache, elastic, film_service)
+    return PersonService(cache, search_engine, film_service)

@@ -13,9 +13,11 @@ from db import redis
 
 async def startup():
     redis.redis = Redis(host=settings.redis_host, port=settings.redis_port)
+    redis.cache_storage = redis.RedisCacheStorage(redis.redis)
     elastic.es = AsyncElasticsearch(
         hosts=[f'{settings.elastic_schema}{settings.elastic_host}:{settings.elastic_port}'],
     )
+    elastic.search_engine = elastic.ElasticSearchEngine(elastic.es)
 
 
 async def shutdown():

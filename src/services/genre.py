@@ -1,11 +1,11 @@
 from functools import lru_cache
 from typing import Optional
 
-from elasticsearch import AsyncElasticsearch, NotFoundError
 from fastapi import Depends
 from pydantic import TypeAdapter
 
-from db.elastic import get_elastic
+from db.elastic import get_search_engine
+from db.search_engine import SearchEngine
 from models.genre import Genre
 from services.cache import CacheService, get_cache_service
 
@@ -14,27 +14,26 @@ GENRES_MAX_SIZE = 1000
 
 
 class GenreService:
-    def __init__(self, cache: CacheService, elastic: AsyncElasticsearch):
+    def __init__(self, cache: CacheService, search_engine: SearchEngine):
         self.cache = cache
-        self.elastic = elastic
+        self.search_engine = search_engine
 
     async def get_by_id(self, genre_id: str) -> Optional[Genre]:
         cache_key = self._genre_cache_key(genre_id)
         if cached := await self.cache.get_model(cache_key, Genre):
             return cached
 
-        genre = await self._get_genre_from_elastic(genre_id)
+        genre = await self._get_genre(genre_id)
         if not genre:
             return None
         await self.cache.set_model(cache_key, genre)
         return genre
 
-    async def _get_genre_from_elastic(self, genre_id: str) -> Genre | None:
-        try:
-            doc = await self.elastic.get(index='genres', id=genre_id)
-        except NotFoundError:
+    async def _get_genre(self, genre_id: str) -> Genre | None:
+        source = await self.search_engine.get('genres', genre_id)
+        if not source:
             return None
-        return Genre(**doc['_source'])
+        return Genre(**source)
 
     async def get_by_names(self, names: list[str]) -> list[Genre]:
         if not names:
@@ -51,18 +50,18 @@ class GenreService:
         if (cached := await self._get_genres_from_cache(cache_key)) is not None:
             return cached
 
-        genres = await self._get_genres_from_elastic()
+        genres = await self._search_genres()
         await self._set_genres_to_cache(cache_key, genres)
         return genres
 
-    async def _get_genres_from_elastic(self) -> list[Genre]:
-        docs = await self.elastic.search(
-            index='genres',
-            query={'match_all': {}},
+    async def _search_genres(self) -> list[Genre]:
+        sources = await self.search_engine.search(
+            'genres',
+            {'match_all': {}},
             source_includes=['id', 'name', 'description'],
             size=GENRES_MAX_SIZE,
         )
-        return [Genre(**hit['_source']) for hit in docs['hits']['hits']]
+        return [Genre(**source) for source in sources]
 
     async def _get_genres_from_cache(self, cache_key: str) -> list[Genre] | None:
         return await self.cache.get_typed(cache_key, GENRES_LIST_ADAPTER)
@@ -78,6 +77,6 @@ class GenreService:
 @lru_cache()
 def get_genre_service(
         cache: CacheService = Depends(get_cache_service),
-        elastic: AsyncElasticsearch = Depends(get_elastic),
+        search_engine: SearchEngine = Depends(get_search_engine),
 ) -> GenreService:
-    return GenreService(cache, elastic)
+    return GenreService(cache, search_engine)

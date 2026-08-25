@@ -1,37 +1,26 @@
 from functools import lru_cache
-from logging import getLogger
 from typing import TypeVar
 
 from fastapi import Depends
 from pydantic import BaseModel, TypeAdapter
-from redis.asyncio import Redis
-from redis.exceptions import RedisError
 
 from core.config import settings
-from db.redis import get_redis
-
-logger = getLogger(__name__)
+from db.cache_storage import CacheStorage
+from db.redis import get_cache_storage
 
 T = TypeVar('T')
 ModelT = TypeVar('ModelT', bound=BaseModel)
 
 
 class CacheService:
-    def __init__(self, redis: Redis):
-        self.redis = redis
+    def __init__(self, storage: CacheStorage):
+        self._storage = storage
 
     async def get(self, key: str) -> bytes | None:
-        try:
-            return await self.redis.get(key)
-        except RedisError as exc:
-            logger.error('Redis unavailable on get(%s): %s', key, exc)
-            return None
+        return await self._storage.get(key)
 
     async def set(self, key: str, value: str | bytes) -> None:
-        try:
-            await self.redis.set(key, value, settings.cache_expire_in_seconds)
-        except RedisError as exc:
-            logger.error('Redis unavailable on set(%s): %s', key, exc)
+        await self._storage.set(key, value, expire=settings.cache_expire_in_seconds)
 
     async def get_model(self, key: str, model: type[ModelT]) -> ModelT | None:
         data = await self.get(key)
@@ -53,5 +42,7 @@ class CacheService:
 
 
 @lru_cache()
-def get_cache_service(redis: Redis = Depends(get_redis)) -> CacheService:
-    return CacheService(redis)
+def get_cache_service(
+    storage: CacheStorage = Depends(get_cache_storage),
+) -> CacheService:
+    return CacheService(storage)

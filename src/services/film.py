@@ -1,12 +1,12 @@
 from functools import lru_cache
 from typing import Optional
 
-from elasticsearch import AsyncElasticsearch, NotFoundError
 from fastapi import Depends
 from pydantic import TypeAdapter
 
 from core.pagination import Pagination
-from db.elastic import get_elastic
+from db.elastic import get_search_engine
+from db.search_engine import SearchEngine
 from models.film import Film, FilmShort
 from services.cache import CacheService, get_cache_service
 from services.genre import GenreService, get_genre_service
@@ -18,11 +18,11 @@ class FilmService:
     def __init__(
         self,
         cache: CacheService,
-        elastic: AsyncElasticsearch,
+        search_engine: SearchEngine,
         genre_service: GenreService,
     ):
         self.cache = cache
-        self.elastic = elastic
+        self.search_engine = search_engine
         self.genre_service = genre_service
 
     async def get_by_id(self, film_id: str) -> Optional[Film]:
@@ -30,7 +30,7 @@ class FilmService:
         if cached := await self.cache.get_model(cache_key, Film):
             return cached
 
-        film_data = await self._get_film_from_elastic(film_id)
+        film_data = await self._get_film(film_id)
         if not film_data:
             return None
 
@@ -62,7 +62,7 @@ class FilmService:
                 return []
             genre_name = found_genre.name
 
-        films = await self._search_films_short_from_elastic(
+        films = await self._search_films_short(
             from_=pagination.offset,
             size=pagination.page_size,
             genre=genre_name,
@@ -84,7 +84,7 @@ class FilmService:
         if (cached := await self._get_films_short_from_cache(cache_key)) is not None:
             return cached
 
-        films = await self._search_films_short_from_elastic(
+        films = await self._search_films_short(
             from_=pagination.offset,
             size=pagination.page_size,
             query=query,
@@ -92,13 +92,12 @@ class FilmService:
         await self._set_films_short_to_cache(cache_key, films)
         return films
 
-    async def _get_film_from_elastic(self, film_id: str) -> tuple[Film, list[str]] | None:
-        try:
-            doc = await self.elastic.get(index='movies', id=film_id)
-        except NotFoundError:
+    async def _get_film(self, film_id: str) -> tuple[Film, list[str]] | None:
+        source = await self.search_engine.get('movies', film_id)
+        if not source:
             return None
 
-        source = dict(doc['_source'])
+        source = dict(source)
         genre_names = list(source.pop('genres', None) or [])
         return Film(**source, genres=[]), genre_names
 
@@ -108,7 +107,7 @@ class FilmService:
     async def _set_films_short_to_cache(self, cache_key: str, films: list[FilmShort]) -> None:
         await self.cache.set_typed(cache_key, FILMS_LIST_ADAPTER, films)
 
-    async def _search_films_short_from_elastic(
+    async def _search_films_short(
         self,
         from_: int,
         size: int,
@@ -117,34 +116,26 @@ class FilmService:
         query: str | None = None,
         sort: str | None = None,
     ) -> list[FilmShort]:
-        search_kwargs: dict = {
-            'index': 'movies',
-            'query': self._build_query(genre, query),
-            'source_includes': ['id', 'title', 'imdb_rating'],
-            'from_': from_,
-            'size': size,
-        }
-        if sort:
-            search_kwargs['sort'] = self._build_sort(sort)
-
-        docs = await self.elastic.search(**search_kwargs)
-        return [FilmShort(**hit['_source']) for hit in docs['hits']['hits']]
+        sources = await self.search_engine.search(
+            'movies',
+            self._build_query(genre, query),
+            from_=from_,
+            size=size,
+            source_includes=['id', 'title', 'imdb_rating'],
+            sort=self._build_sort(sort) if sort else None,
+        )
+        return [FilmShort(**source) for source in sources]
 
     async def get_films_by_ids(self, film_ids: list[str]) -> list[FilmShort]:
         if not film_ids:
             return []
 
-        docs = await self.elastic.mget(
-            index='movies',
-            ids=film_ids,
+        sources = await self.search_engine.mget(
+            'movies',
+            film_ids,
             source_includes=['id', 'title', 'imdb_rating'],
         )
-        films: list[FilmShort] = []
-        for doc in docs['docs']:
-            if not doc.get('found'):
-                continue
-            films.append(FilmShort(**doc['_source']))
-        return films
+        return [FilmShort(**source) for source in sources]
 
     @staticmethod
     def _build_query(genre: str | None, query: str | None) -> dict:
@@ -205,7 +196,7 @@ class FilmService:
 @lru_cache()
 def get_film_service(
         cache: CacheService = Depends(get_cache_service),
-        elastic: AsyncElasticsearch = Depends(get_elastic),
+        search_engine: SearchEngine = Depends(get_search_engine),
         genre_service: GenreService = Depends(get_genre_service),
 ) -> FilmService:
-    return FilmService(cache, elastic, genre_service)
+    return FilmService(cache, search_engine, genre_service)
