@@ -1,0 +1,48 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+
+  redis:
+    image: redis:7-alpine
+
+  fastapi:
+    build: ../..
+    image: fastapi-image
+    env_file:
+      - ../../.env
+    environment:
+      REDIS_HOST: redis
+      ELASTIC_HOST: elasticsearch
+    depends_on:
+      - redis
+      - elasticsearch
+
+  tests:
+    image: fastapi-image
+    depends_on:
+      - fastapi
+      - redis
+      - elasticsearch
+    volumes:
+      - ..:/tests
+      - pip_cache:/root/.cache/pip
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ELASTIC_HOST: elasticsearch
+      ELASTIC_PORT: 9200
+      ELASTIC_SCHEMA: http://
+      SERVICE_URL: http://fastapi:8000
+      PYTHONPATH: /tests/functional
+    entrypoint: >
+      sh -c "pip install -r /tests/functional/requirements.txt
+      && python3 /tests/functional/utils/wait_for_es.py
+      && python3 /tests/functional/utils/wait_for_redis.py
+      && pytest /tests/functional/src"
+
+volumes:
+  pip_cache:
