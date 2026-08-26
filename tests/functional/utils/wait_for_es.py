@@ -1,13 +1,11 @@
-import os
 import time
 
 from elasticsearch import Elasticsearch
 
+from settings import test_settings
+
 if __name__ == '__main__':
-    host = os.getenv('ELASTIC_HOST', '127.0.0.1')
-    port = os.getenv('ELASTIC_PORT', '9200')
-    schema = os.getenv('ELASTIC_SCHEMA', 'http://')
-    es_client = Elasticsearch(hosts=f'{schema}{host}:{port}')
+    es_client = Elasticsearch(hosts=test_settings.es_host)
     while True:
         try:
             if es_client.ping():
