@@ -63,10 +63,11 @@ async def es_write_data_fixture(es_client: AsyncElasticsearch):
 
 @pytest_asyncio.fixture(name='es_upsert_data', scope='session', loop_scope='session')
 async def es_upsert_data_fixture(es_client: AsyncElasticsearch):
-    async def inner(data: list[dict]):
+    async def inner(data: list[dict], *, index: str | None = None):
+        target_index = index or test_settings.es_index
         bulk_query = [
             {
-                '_index': test_settings.es_index,
+                '_index': target_index,
                 '_id': row[test_settings.es_id_field],
                 '_source': row,
             }
@@ -85,13 +86,14 @@ async def es_upsert_data_fixture(es_client: AsyncElasticsearch):
 
 @pytest_asyncio.fixture(name='es_delete_ids', scope='session', loop_scope='session')
 async def es_delete_ids_fixture(es_client: AsyncElasticsearch):
-    async def inner(ids: list[str]):
+    async def inner(ids: list[str], *, index: str | None = None):
+        target_index = index or test_settings.es_index
         for doc_id in ids:
             try:
-                await es_client.delete(index=test_settings.es_index, id=doc_id)
+                await es_client.delete(index=target_index, id=doc_id)
             except NotFoundError:
                 pass
-        await es_client.indices.refresh(index=test_settings.es_index)
+        await es_client.indices.refresh(index=target_index)
 
     return inner
 
