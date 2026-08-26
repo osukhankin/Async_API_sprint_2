@@ -2,12 +2,13 @@ import pytest
 import pytest_asyncio
 
 from testdata.films import make_film
+from testdata.films_search import films_for_search
 
 
 @pytest_asyncio.fixture(scope='module', loop_scope='session', autouse=True)
-async def prepare_search_data(es_write_data, es_data, redis_client):
+async def prepare_films_search_data(es_write_data, redis_client):
     await redis_client.flushdb()
-    await es_write_data(es_data)
+    await es_write_data(films_for_search())
 
 
 @pytest.mark.parametrize(

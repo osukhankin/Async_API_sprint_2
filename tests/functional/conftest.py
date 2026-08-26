@@ -1,12 +1,10 @@
 import aiohttp
-import pytest
 import pytest_asyncio
 from elasticsearch import AsyncElasticsearch, NotFoundError
 from elasticsearch.helpers import async_bulk
 from redis.asyncio import Redis
 
 from settings import test_settings
-from testdata.films import films_for_search
 from utils.helpers import HTTPResponse
 
 
@@ -33,21 +31,25 @@ async def http_session_fixture():
 
 @pytest_asyncio.fixture(name='es_write_data', scope='session', loop_scope='session')
 async def es_write_data_fixture(es_client: AsyncElasticsearch):
-    async def inner(data: list[dict]):
+    async def inner(
+        data: list[dict],
+        *,
+        index: str | None = None,
+        mapping: dict | None = None,
+    ):
+        target_index = index or test_settings.es_index
+        target_mapping = mapping or test_settings.es_index_mapping
         bulk_query = [
             {
-                '_index': test_settings.es_index,
+                '_index': target_index,
                 '_id': row[test_settings.es_id_field],
                 '_source': row,
             }
             for row in data
         ]
-        if await es_client.indices.exists(index=test_settings.es_index):
-            await es_client.indices.delete(index=test_settings.es_index)
-        await es_client.indices.create(
-            index=test_settings.es_index,
-            **test_settings.es_index_mapping,
-        )
+        if await es_client.indices.exists(index=target_index):
+            await es_client.indices.delete(index=target_index)
+        await es_client.indices.create(index=target_index, **target_mapping)
         _updated, errors = await async_bulk(
             client=es_client,
             actions=bulk_query,
@@ -103,8 +105,3 @@ async def make_get_request_fixture(http_session: aiohttp.ClientSession):
             return HTTPResponse(body=body, status=response.status)
 
     return inner
-
-
-@pytest.fixture(name='es_data', scope='session')
-def es_data_fixture() -> list[dict]:
-    return films_for_search()
