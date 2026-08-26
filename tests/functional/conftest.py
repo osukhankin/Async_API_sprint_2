@@ -1,7 +1,7 @@
 import aiohttp
 import pytest
 import pytest_asyncio
-from elasticsearch import AsyncElasticsearch
+from elasticsearch import AsyncElasticsearch, NotFoundError
 from elasticsearch.helpers import async_bulk
 from redis.asyncio import Redis
 
@@ -55,6 +55,41 @@ async def es_write_data_fixture(es_client: AsyncElasticsearch):
         )
         if errors:
             raise Exception('Ошибка записи данных в Elasticsearch')
+
+    return inner
+
+
+@pytest_asyncio.fixture(name='es_upsert_data', scope='session', loop_scope='session')
+async def es_upsert_data_fixture(es_client: AsyncElasticsearch):
+    async def inner(data: list[dict]):
+        bulk_query = [
+            {
+                '_index': test_settings.es_index,
+                '_id': row[test_settings.es_id_field],
+                '_source': row,
+            }
+            for row in data
+        ]
+        _updated, errors = await async_bulk(
+            client=es_client,
+            actions=bulk_query,
+            refresh='wait_for',
+        )
+        if errors:
+            raise Exception('Ошибка upsert данных в Elasticsearch')
+
+    return inner
+
+
+@pytest_asyncio.fixture(name='es_delete_ids', scope='session', loop_scope='session')
+async def es_delete_ids_fixture(es_client: AsyncElasticsearch):
+    async def inner(ids: list[str]):
+        for doc_id in ids:
+            try:
+                await es_client.delete(index=test_settings.es_index, id=doc_id)
+            except NotFoundError:
+                pass
+        await es_client.indices.refresh(index=test_settings.es_index)
 
     return inner
 
