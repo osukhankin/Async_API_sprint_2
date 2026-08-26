@@ -102,3 +102,69 @@ async def test_search_n_records(
 
     assert response.status == expected_answer['status']
     assert len(response.body) == expected_answer['length']
+
+
+@pytest.mark.parametrize(
+    'query_data, expected_answer',
+    [
+        # нет query
+        (
+            {},
+            {'status': 422},
+        ),
+        # query пустая строка
+        (
+            {'query': ''},
+            {'status': 422},
+        ),
+        # page_size 0
+        (
+            {'query': 'The Star', 'page_size': 0},
+            {'status': 422},
+        ),
+        # page_size -1
+        (
+            {'query': 'The Star', 'page_size': -1},
+            {'status': 422},
+        ),
+        # page_size 101
+        (
+            {'query': 'The Star', 'page_size': 101},
+            {'status': 422},
+        ),
+        # page_size не число
+        (
+            {'query': 'The Star', 'page_size': 'abc'},
+            {'status': 422},
+        ),
+        # page_number 0
+        (
+            {'query': 'The Star', 'page_size': 10, 'page_number': 0},
+            {'status': 422},
+        ),
+        # page_number -1
+        (
+            {'query': 'The Star', 'page_size': 10, 'page_number': -1},
+            {'status': 422},
+        ),
+        # page_number не число
+        (
+            {'query': 'The Star', 'page_size': 10, 'page_number': 'abc'},
+            {'status': 422},
+        ),
+        # page_number * page_size > 10000
+        (
+            {'query': 'The Star', 'page_size': 10, 'page_number': 10001},
+            {'status': 422},
+        ),
+    ],
+)
+@pytest.mark.asyncio(loop_scope='session')
+async def test_search_validation(
+    make_get_request,
+    query_data: dict,
+    expected_answer: dict,
+):
+    response = await make_get_request('/api/v1/films/search/', query_data)
+
+    assert response.status == expected_answer['status']
