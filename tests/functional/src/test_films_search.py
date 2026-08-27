@@ -160,6 +160,11 @@ async def test_search_n_records(
             {'query': 'The Star', 'page_size': 10, 'page_number': 10001},
             {'status': 422},
         ),
+        # query длиннее max_length
+        (
+            {'query': 'x' * 101},
+            {'status': 422},
+        ),
     ],
 )
 @pytest.mark.asyncio(loop_scope='session')

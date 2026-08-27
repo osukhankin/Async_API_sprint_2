@@ -124,6 +124,7 @@ async def test_persons_search_n_records(
             {'query': 'Starling', 'page_size': 10, 'page_number': 10001},
             {'status': 422},
         ),
+        ({'query': 'x' * 101}, {'status': 422}),
     ],
 )
 @pytest.mark.asyncio(loop_scope='session')

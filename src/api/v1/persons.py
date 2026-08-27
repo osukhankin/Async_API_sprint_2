@@ -2,6 +2,7 @@ from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.const import MAX_SEARCH_QUERY_LENGTH
 from core.pagination import Pagination
 from schemas.film import FilmListItem
 from schemas.person import PersonResponse
@@ -19,7 +20,12 @@ router = APIRouter(tags=['Персоны'])
 async def persons_search(
     person_service: PersonService = Depends(get_person_service),
     pagination: Pagination = Depends(),
-    query: str = Query(..., min_length=1, description='Поиск по частичному совпадению имени'),
+    query: str = Query(
+        ...,
+        min_length=1,
+        max_length=MAX_SEARCH_QUERY_LENGTH,
+        description='Поиск по частичному совпадению имени',
+    ),
 ) -> list[PersonResponse]:
     items = await person_service.search_persons(
         pagination=pagination,

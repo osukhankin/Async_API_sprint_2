@@ -35,6 +35,12 @@ class RedisCacheStorage(CacheStorage):
         except RedisError as exc:
             logger.error('Redis unavailable on set(%s): %s', key, exc)
 
+    async def delete(self, key: str) -> None:
+        try:
+            await self._delete(key)
+        except RedisError as exc:
+            logger.error('Redis unavailable on delete(%s): %s', key, exc)
+
     @backoff(exceptions=(RedisError,))
     async def _get(self, key: str) -> bytes | None:
         return await self._client.get(key)
@@ -47,6 +53,10 @@ class RedisCacheStorage(CacheStorage):
         expire: int | None = None,
     ) -> None:
         await self._client.set(key, value, ex=expire)
+
+    @backoff(exceptions=(RedisError,))
+    async def _delete(self, key: str) -> None:
+        await self._client.delete(key)
 
 
 async def get_cache_storage() -> CacheStorage:

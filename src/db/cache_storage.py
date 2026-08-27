@@ -14,3 +14,7 @@ class CacheStorage(ABC):
         expire: int | None = None,
     ) -> None:
         """Сохранить значение. Ошибка кеша не должна пробрасываться наружу."""
+
+    @abstractmethod
+    async def delete(self, key: str) -> None:
+        """Удалить ключ. Ошибка кеша не должна пробрасываться наружу."""
