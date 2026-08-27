@@ -1,17 +1,22 @@
 from typing import Any, Optional
 
+from elastic_transport import ConnectionError, ConnectionTimeout, TransportError
 from elasticsearch import AsyncElasticsearch, NotFoundError
 
+from core.backoff import backoff
 from .search_engine import SearchEngine
 
 es: Optional[AsyncElasticsearch] = None
 search_engine: Optional[SearchEngine] = None
+
+_ES_RETRY_EXCEPTIONS = (ConnectionError, ConnectionTimeout, TransportError)
 
 
 class ElasticSearchEngine(SearchEngine):
     def __init__(self, client: AsyncElasticsearch):
         self._client = client
 
+    @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def get(self, index: str, doc_id: str) -> dict[str, Any] | None:
         try:
             doc = await self._client.get(index=index, id=doc_id)
@@ -19,6 +24,7 @@ class ElasticSearchEngine(SearchEngine):
             return None
         return dict(doc['_source'])
 
+    @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def search(
         self,
         index: str,
@@ -43,6 +49,7 @@ class ElasticSearchEngine(SearchEngine):
         docs = await self._client.search(**search_kwargs)
         return [hit['_source'] for hit in docs['hits']['hits']]
 
+    @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def mget(
         self,
         index: str,
