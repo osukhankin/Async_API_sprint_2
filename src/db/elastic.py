@@ -68,6 +68,36 @@ class ElasticSearchEngine(SearchEngine):
 
     @_map_elasticsearch_unavailable
     @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
+    async def search_after(
+        self,
+        index: str,
+        query: dict[str, Any],
+        *,
+        size: int,
+        sort: list[dict[str, Any]],
+        source_includes: list[str] | None = None,
+        search_after: list[Any] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[Any] | None]:
+        search_kwargs: dict[str, Any] = {
+            'index': index,
+            'query': query,
+            'size': size,
+            'sort': sort,
+        }
+        if source_includes:
+            search_kwargs['source_includes'] = source_includes
+        if search_after is not None:
+            search_kwargs['search_after'] = search_after
+
+        docs = await self._client.search(**search_kwargs)
+        hits = docs['hits']['hits']
+        sources = [hit['_source'] for hit in hits]
+        if len(hits) < size:
+            return sources, None
+        return sources, hits[-1]['sort']
+
+    @_map_elasticsearch_unavailable
+    @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def mget(
         self,
         index: str,

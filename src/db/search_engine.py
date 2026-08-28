@@ -21,6 +21,23 @@ class SearchEngine(ABC):
         """Источники найденных документов."""
 
     @abstractmethod
+    async def search_after(
+        self,
+        index: str,
+        query: dict[str, Any],
+        *,
+        size: int,
+        sort: list[dict[str, Any]],
+        source_includes: list[str] | None = None,
+        search_after: list[Any] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[Any] | None]:
+        """
+        Страница результатов и курсор для следующей страницы.
+
+        search_after=None в ответе означает, что данных больше нет.
+        """
+
+    @abstractmethod
     async def mget(
         self,
         index: str,

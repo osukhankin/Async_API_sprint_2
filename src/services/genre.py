@@ -10,7 +10,8 @@ from models.genre import Genre
 from services.cache import CacheService, get_cache_service
 
 GENRES_LIST_ADAPTER = TypeAdapter(list[Genre])
-GENRES_MAX_SIZE = 1000
+GENRES_BATCH_SIZE = 500
+GENRES_SORT = [{'id': {'order': 'asc'}}]
 
 
 class GenreService:
@@ -55,13 +56,23 @@ class GenreService:
         return genres
 
     async def _search_genres(self) -> list[Genre]:
-        sources = await self.search_engine.search(
-            'genres',
-            {'match_all': {}},
-            source_includes=['id', 'name', 'description'],
-            size=GENRES_MAX_SIZE,
-        )
-        return [Genre(**source) for source in sources]
+        genres: list[Genre] = []
+        search_after: list | None = None
+
+        while True:
+            sources, search_after = await self.search_engine.search_after(
+                'genres',
+                {'match_all': {}},
+                size=GENRES_BATCH_SIZE,
+                sort=GENRES_SORT,
+                source_includes=['id', 'name', 'description'],
+                search_after=search_after,
+            )
+            genres.extend(Genre(**source) for source in sources)
+            if search_after is None:
+                break
+
+        return genres
 
     async def _get_genres_from_cache(self, cache_key: str) -> list[Genre] | None:
         return await self.cache.get_typed(cache_key, GENRES_LIST_ADAPTER)
