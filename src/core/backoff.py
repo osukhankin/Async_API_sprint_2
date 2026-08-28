@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from collections.abc import Callable, Coroutine
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
@@ -23,7 +24,8 @@ def backoff(
     """
     Повторный вызов async-функции при ошибке внешнего сервиса.
 
-    Наивный экспоненциальный рост паузы (factor) до border_sleep_time.
+    Экспоненциальный рост паузы (factor) до border_sleep_time
+    со случайным разбросом (full jitter), чтобы снизить пик нагрузки.
     """
 
     def func_wrapper(
@@ -39,11 +41,12 @@ def backoff(
                     if attempt == max_retries:
                         raise
 
-                    sleep_time = start_sleep_time * (factor ** n)
-                    if sleep_time >= border_sleep_time:
-                        sleep_time = border_sleep_time
+                    base_delay = start_sleep_time * (factor ** n)
+                    if base_delay >= border_sleep_time:
+                        base_delay = border_sleep_time
                     else:
                         n += 1
+                    sleep_time = random.uniform(0, base_delay)
 
                     logger.warning(
                         'Backoff for %s: %s. Retry in %.1fs',
