@@ -1,9 +1,11 @@
-from typing import Any, Optional
+from functools import wraps
+from typing import Any, Callable, Coroutine, Optional
 
 from elastic_transport import ConnectionError, ConnectionTimeout, TransportError
 from elasticsearch import AsyncElasticsearch, NotFoundError
 
 from core.backoff import backoff
+from core.exceptions import ElasticsearchUnavailableError
 from .search_engine import SearchEngine
 
 es: Optional[AsyncElasticsearch] = None
@@ -12,10 +14,24 @@ search_engine: Optional[SearchEngine] = None
 _ES_RETRY_EXCEPTIONS = (ConnectionError, ConnectionTimeout, TransportError)
 
 
+def _map_elasticsearch_unavailable(
+    func: Callable[..., Coroutine[Any, Any, Any]],
+) -> Callable[..., Coroutine[Any, Any, Any]]:
+    @wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await func(*args, **kwargs)
+        except _ES_RETRY_EXCEPTIONS as exc:
+            raise ElasticsearchUnavailableError(str(exc)) from exc
+
+    return wrapper
+
+
 class ElasticSearchEngine(SearchEngine):
     def __init__(self, client: AsyncElasticsearch):
         self._client = client
 
+    @_map_elasticsearch_unavailable
     @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def get(self, index: str, doc_id: str) -> dict[str, Any] | None:
         try:
@@ -24,6 +40,7 @@ class ElasticSearchEngine(SearchEngine):
             return None
         return dict(doc['_source'])
 
+    @_map_elasticsearch_unavailable
     @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def search(
         self,
@@ -49,6 +66,7 @@ class ElasticSearchEngine(SearchEngine):
         docs = await self._client.search(**search_kwargs)
         return [hit['_source'] for hit in docs['hits']['hits']]
 
+    @_map_elasticsearch_unavailable
     @backoff(exceptions=_ES_RETRY_EXCEPTIONS)
     async def mget(
         self,
